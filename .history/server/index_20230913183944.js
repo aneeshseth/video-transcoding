@@ -1,0 +1,107 @@
+import express from 'express'
+const app = express()
+import multer from 'multer'
+import {S3Client, PutObjectCommand, GetObjectCommand} from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import cors from 'cors'
+import ffmpeg from 'fluent-ffmpeg';
+import path from 'path'
+import fs from 'fs'
+import { fileURLToPath } from 'url';
+
+import { path as ffmpegPath } from '@ffmpeg-installer/ffmpeg';
+import {path as ffprobePath} from '@ffprobe-installer/ffprobe'
+
+
+
+ffmpeg.setFfmpegPath(ffmpegPath);
+ffmpeg.setFfprobePath(ffprobePath);
+
+
+
+
+const storage = multer.memoryStorage()
+const upload = multer({storage: storage})
+app.use(cors())
+const s3 = new S3Client({
+    credentials: {
+        accessKeyId: "AKIA35VTPTMRCBRBML64",
+        secretAccessKey: "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"
+    },
+    region: "us-east-1"
+})
+
+
+
+app.post("/api/posts",upload.single('video'), async (req,res) => {
+    const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+    const params = {
+        Bucket: "my-bucket-next",
+        Key: req.file.originalname,
+        Body: req.file.buffer,
+        ContentType: req.file.mimetype
+    }
+    const command = new PutObjectCommand(params)
+    await s3.send(command)
+    console.log(command)
+    const getObjectParams = {
+        Bucket: "my-bucket-next",
+        Key: req.file.originalname,
+    }
+    const command2 = new GetObjectCommand(getObjectParams)
+    console.log(command2)
+    const url = await getSignedUrl(s3, command2, {expiresIn: 3700})
+    console.log(url)
+    const outputDir = path.join(__dirname, "..", "public", "hls")
+    console.log(outputDir)
+  const uniqueVal = `${Date.now()}`;
+  const bitrates = ['100k', '800k', '1200k', '2400k', '3000k'];
+  const masterMenifestFileName = `${uniqueVal}.m3u8`;
+  try {
+    const ffmpegPromises = bitrates.map( async (bitrate) => {
+        const outputFileName = `${bitrate}-${uniqueVal}.m3u8`;
+        try {
+            ffmpeg()
+            .input(url)
+            .outputOptions([
+              '-profile:v baseline', 
+              '-level 3.0',  
+              '-start_number 0', 
+              '-hls_time 10',  
+              '-hls_list_size 0',
+              '-f hls', 
+            ])
+            .output(`${outputDir}/${outputFileName}`)
+            .videoBitrate(bitrate)
+            .audioCodec('aac')
+            .audioBitrate('128k')
+            .run();
+            console.log("hey?")
+        } catch (err) {
+            console.log("ERROR")
+            console.log(err)
+        }
+      }
+      );
+      await Promise.all(ffmpegPromises);
+      const masterManifestContent = bitrates.map((bitrate) => {
+        const playlistFileName = `${bitrate}-${uniqueVal}.m3u8`;
+        const serverUrl = 'http://localhost:3002/public/hls'
+        return `#EXT-X-STREAM-INF:BANDWIDTH=${bitrate},RESOLUTION=720X480\n${playlistFileName}`;
+      }).join('\n');
+      fs.writeFileSync(`${outputDir}/${masterMenifestFileName}`,`#EXTM3U
+        ${masterManifestContent}`);
+      console.log("\n \t Video Transcoding Complete");
+      console.log("video?")
+  } catch (err) {
+    console.log(err)
+  }
+  return res.sendStatus(200)
+})
+
+
+
+app.listen(3002, () => {
+    console.log('server running')
+})
