@@ -83,12 +83,13 @@ app.post("/api/posts",upload.single('video'), async (req,res) => {
         }
     );
       await Promise.all(ffmpegPromises);
-      const mManifestC = converTo.map((bitrate) => {
-        const mPlaylist = `${bitrate}-${uuidName}.m3u8`;
-        return `#EXT-X-STREAM-INF:BANDWIDTH=${bitrate},RESOLUTION=720X480\n${mPlaylist}`;
+      const masterManifestContent = converTi.map((bitrate) => {
+        const playlistFileName = `${bitrate}-${uuidName}.m3u8`;
+        const serverUrl = 'http://localhost:3002/public/hls'
+        return `#EXT-X-STREAM-INF:BANDWIDTH=${bitrate},RESOLUTION=720X480\n${playlistFileName}`;
       }).join('\n');
       fs.writeFileSync(`${outputDir}/${m3u8Name}`,`#EXTM3U
-        ${mManifestC}`);
+        ${masterManifestContent}`);
       console.log("video?")
   } catch (err) {
     console.log(err)
